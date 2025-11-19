@@ -14,8 +14,8 @@ import sys
 
 # GraphQL query to fetch areas with climbs
 AREAS_QUERY = """
-query GetAreas($limit: Int, $offset: Int) {
-  areas(filter: {leaf_status: {isLeaf: true}}, limit: $limit, offset: $offset) {
+query GetAreas {
+  areas(filter: {leaf_status: {isLeaf: true}}) {
     uuid
     area_name
     pathTokens
@@ -66,51 +66,41 @@ def load_schema() -> str:
     schema_path = Path(__file__).parent / "schema.sql"
     return schema_path.read_text()
 
-def fetch_all_climbs(api_url: str, batch_size: int = 100) -> List[Dict]:
-    """Fetch all climbs from GraphQL API with pagination"""
-    all_climbs = []
-    offset = 0
-
+def fetch_all_climbs(api_url: str) -> List[Dict]:
+    """Fetch all climbs from GraphQL API"""
     print(f"Fetching climbs from {api_url}...")
 
-    while True:
-        variables = {"limit": batch_size, "offset": offset}
-        response = requests.post(
-            api_url,
-            json={"query": AREAS_QUERY, "variables": variables},
-            headers={"Content-Type": "application/json"}
-        )
+    response = requests.post(
+        api_url,
+        json={"query": AREAS_QUERY},
+        headers={"Content-Type": "application/json"}
+    )
 
-        if response.status_code != 200:
-            raise Exception(f"GraphQL query failed: {response.status_code} {response.text}")
+    if response.status_code != 200:
+        raise Exception(f"GraphQL query failed: {response.status_code} {response.text}")
 
-        data = response.json()
+    data = response.json()
 
-        if "errors" in data:
-            raise Exception(f"GraphQL errors: {data['errors']}")
+    if "errors" in data:
+        raise Exception(f"GraphQL errors: {data['errors']}")
 
-        areas = data.get("data", {}).get("areas", [])
+    areas = data.get("data", {}).get("areas", [])
+    all_climbs = []
 
-        if not areas:
-            break
+    # Extract climbs from areas and flatten
+    for area in areas:
+        for climb in area.get("climbs", []):
+            # Use area pathTokens if climb doesn't have them
+            if not climb.get("pathTokens"):
+                climb["pathTokens"] = area.get("pathTokens", [])
 
-        # Extract climbs from areas and flatten
-        for area in areas:
-            for climb in area.get("climbs", []):
-                # Use area pathTokens if climb doesn't have them
-                if not climb.get("pathTokens"):
-                    climb["pathTokens"] = area.get("pathTokens", [])
+            # Add area coordinates if climb doesn't have them
+            if not climb.get("metadata", {}).get("lat"):
+                if area.get("metadata", {}).get("lat"):
+                    climb.setdefault("metadata", {})["lat"] = area["metadata"]["lat"]
+                    climb["metadata"]["lng"] = area["metadata"]["lng"]
 
-                # Add area coordinates if climb doesn't have them
-                if not climb.get("metadata", {}).get("lat"):
-                    if area.get("metadata", {}).get("lat"):
-                        climb.setdefault("metadata", {})["lat"] = area["metadata"]["lat"]
-                        climb["metadata"]["lng"] = area["metadata"]["lng"]
-
-                all_climbs.append(climb)
-
-        print(f"  Fetched {len(all_climbs)} climbs so far...")
-        offset += batch_size
+            all_climbs.append(climb)
 
     print(f"✓ Total climbs fetched: {len(all_climbs)}")
     return all_climbs
@@ -185,10 +175,9 @@ def main():
         # Load configuration
         config = load_config()
         api_url = config["export"]["api_url"]
-        batch_size = config["export"].get("batch_size", 100)
 
         # Fetch data
-        climbs = fetch_all_climbs(api_url, batch_size)
+        climbs = fetch_all_climbs(api_url)
 
         if not climbs:
             print("⚠ No climbs found!")

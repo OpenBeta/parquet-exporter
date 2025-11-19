@@ -17,9 +17,6 @@ export:
     filename: "openbeta-climbs.parquet"
     compression: "snappy"  # Options: snappy, gzip, zstd, none
 
-  # Pagination for GraphQL queries
-  batch_size: 1000  # Climbs per request
-
   # Optional filters (comment out to disable)
   filters:
     # min_grade: "5.6"
