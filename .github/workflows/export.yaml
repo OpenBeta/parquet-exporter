@@ -37,6 +37,15 @@ jobs:
         id: date
         run: echo "DATE=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
+      - name: Read export stats
+        id: stats
+        run: |
+          echo "CLIMBS=$(jq -r '.total_climbs' export-stats.json)" >> $GITHUB_OUTPUT
+          echo "JSON_SIZE=$(jq -r '.json_size_mb' export-stats.json)" >> $GITHUB_OUTPUT
+          echo "PARQUET_SIZE=$(jq -r '.parquet_size_mb' export-stats.json)" >> $GITHUB_OUTPUT
+          echo "COMPRESSION=$(jq -r '.compression_ratio' export-stats.json)" >> $GITHUB_OUTPUT
+          echo "SAVED=$(jq -r '.space_saved_pct' export-stats.json)" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -44,6 +53,10 @@ jobs:
           name: ${{ steps.date.outputs.DATE }}
           body: |
             Worldwide climbing route data in Apache Parquet format (snappy compression).
+
+            **${{ steps.stats.outputs.COMPRESSION }}x smaller than JSON** - ${{ steps.stats.outputs.SAVED }}% space savings (intermediate JSON: ${{ steps.stats.outputs.JSON_SIZE }} MB → Parquet: ${{ steps.stats.outputs.PARQUET_SIZE }} MB)
+
+            ${{ steps.stats.outputs.CLIMBS }} climbing routes worldwide.
 
             ```python
             import pandas as pd

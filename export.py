@@ -317,6 +317,17 @@ def export_to_parquet(climbs: List[Dict], config: Dict):
     print(f"  Size comparison: JSON {json_size_mb:.2f} MB → Parquet {parquet_size_mb:.2f} MB")
     print(f"  Compression: {compression_ratio:.1f}x smaller ({space_saved_pct:.1f}% space saved)")
 
+    # Write stats for GitHub Actions
+    stats = {
+        "total_climbs": len(climbs),
+        "json_size_mb": round(json_size_mb, 2),
+        "parquet_size_mb": round(parquet_size_mb, 2),
+        "compression_ratio": round(compression_ratio, 1),
+        "space_saved_pct": round(space_saved_pct, 1)
+    }
+    stats_path = Path("export-stats.json")
+    stats_path.write_text(json.dumps(stats, indent=2))
+
     # Show sample
     print(f"\nSample data (first 5 rows):")
     sample = con.execute(f"SELECT * FROM ({schema_sql}) LIMIT 5").fetchdf()
