@@ -22,10 +22,9 @@ query GetCountries {
 """
 
 # GraphQL query to fetch sub-regions when a country times out
-# Uses a high limit to get all first-level subdivisions (states/provinces)
 SUBREGIONS_QUERY = """
 query GetSubregions($country: String!) {
-  areas(filter: {path_tokens: {tokens: [$country], exactMatch: false}}, limit: 100000) {
+  areas(filter: {path_tokens: {tokens: [$country], exactMatch: false}}) {
     pathTokens
   }
 }
