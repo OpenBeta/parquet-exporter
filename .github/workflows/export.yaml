@@ -41,33 +41,17 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.date.outputs.DATE }}
-          name: OpenBeta Data Export - ${{ steps.date.outputs.DATE }}
+          name: ${{ steps.date.outputs.DATE }}
           body: |
-            OpenBeta climbing route data export
+            Worldwide climbing route data in Apache Parquet format (snappy compression).
 
-            **Format:** Apache Parquet
-            **Date:** ${{ steps.date.outputs.DATE }}
-            **Compression:** Snappy
-
-            ## Files
-            - `openbeta-climbs.parquet` - All climbing routes
-
-            ## Usage
             ```python
             import pandas as pd
             df = pd.read_parquet('openbeta-climbs.parquet')
             ```
 
-            ```r
-            library(arrow)
-            df <- read_parquet('openbeta-climbs.parquet')
-            ```
-
-            ## Data Schema
-            See [schema.sql](https://github.com/OpenBeta/parquet-exporter/blob/main/schema.sql) for field definitions.
-
-            ---
-            Generated from [OpenBeta GraphQL API](https://api.openbeta.io)
+            Schema: [schema.sql](https://github.com/OpenBeta/parquet-exporter/blob/main/schema.sql)
+            Source: [OpenBeta GraphQL API](https://api.openbeta.io)
           files: |
             openbeta-climbs.parquet
           draft: false
