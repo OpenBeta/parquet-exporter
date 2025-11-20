@@ -170,10 +170,17 @@ def export_to_parquet(climbs: List[Dict], config: Dict):
     # Initialize DuckDB
     con = duckdb.connect(database=":memory:")
 
-    # Load climbs as JSON
-    con.execute("CREATE TABLE climbs AS SELECT * FROM read_json_auto(?)", [json.dumps(climbs)])
+    # Load climbs as JSON via temp file
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+        json.dump(climbs, tmp)
+        tmp_path = tmp.name
 
-    print(f"  Loaded {len(climbs)} climbs into DuckDB")
+    try:
+        con.execute(f"CREATE TABLE climbs AS SELECT * FROM read_json_auto('{tmp_path}')")
+        print(f"  Loaded {len(climbs)} climbs into DuckDB")
+    finally:
+        Path(tmp_path).unlink()  # Clean up temp file
 
     # Load and execute schema transformation
     schema_sql = load_schema()
