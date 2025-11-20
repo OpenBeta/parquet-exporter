@@ -213,6 +213,7 @@ def fetch_all_climbs(api_url: str) -> List[Dict]:
         # If timeout (502/504), break into sub-regions
         if error in [502, 504]:
             print(f"    Country too large, fetching sub-regions...")
+            print(f"    NOTE: Consider adding '{country}' to LARGE_COUNTRIES list in export.py to skip this timeout in future runs")
             subregions = fetch_subregions(api_url, country)
 
             if not subregions:
