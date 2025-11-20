@@ -3,7 +3,7 @@
 
 export:
   # GraphQL API endpoint
-  api_url: "https://api.openbeta.io/graphql"
+  api_url: "https://api.openbeta.io/"
 
   # Geographic regions to export (leave empty for worldwide)
   regions:
