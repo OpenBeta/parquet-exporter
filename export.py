@@ -94,7 +94,7 @@ def fetch_all_climbs(api_url: str) -> List[Dict]:
         raise Exception(f"GraphQL errors: {data['errors']}")
 
     countries = [c["areaName"] for c in data.get("data", {}).get("countries", [])]
-    print(f"✓ Found {len(countries)} countries")
+    print(f"Found {len(countries)} countries")
 
     all_climbs = []
 
@@ -110,12 +110,12 @@ def fetch_all_climbs(api_url: str) -> List[Dict]:
         )
 
         if response.status_code != 200:
-            print(f"    ⚠ Failed to fetch {country}: {response.status_code}")
+            print(f"    WARNING: Failed to fetch {country}: {response.status_code}")
             continue
 
         data = response.json()
         if "errors" in data:
-            print(f"    ⚠ GraphQL errors for {country}: {data['errors']}")
+            print(f"    WARNING: GraphQL errors for {country}: {data['errors']}")
             continue
 
         areas = data.get("data", {}).get("areas", [])
@@ -137,9 +137,9 @@ def fetch_all_climbs(api_url: str) -> List[Dict]:
                 all_climbs.append(climb)
                 country_climbs += 1
 
-        print(f"    ✓ {country}: {country_climbs} climbs")
+        print(f"    {country}: {country_climbs} climbs")
 
-    print(f"\n✓ Total climbs fetched: {len(all_climbs)}")
+    print(f"\nTotal climbs fetched: {len(all_climbs)}")
     return all_climbs
 
 def filter_climbs(climbs: List[Dict], config: Dict) -> List[Dict]:
@@ -155,7 +155,7 @@ def filter_climbs(climbs: List[Dict], config: Dict) -> List[Dict]:
             c for c in filtered
             if c.get("pathTokens") and len(c["pathTokens"]) > 0 and c["pathTokens"][0] in regions
         ]
-        print(f"✓ Filtered to regions {regions}: {len(filtered)} climbs")
+        print(f"Filtered to regions {regions}: {len(filtered)} climbs")
 
     return filtered
 
@@ -200,7 +200,7 @@ def export_to_parquet(climbs: List[Dict], config: Dict):
 
     # Get file size
     size_mb = output_path.stat().st_size / (1024 * 1024)
-    print(f"✓ Export complete: {output_path} ({size_mb:.2f} MB)")
+    print(f"Export complete: {output_path} ({size_mb:.2f} MB)")
 
     # Show sample
     print(f"\nSample data (first 5 rows):")
@@ -224,23 +224,23 @@ def main():
         climbs = fetch_all_climbs(api_url)
 
         if not climbs:
-            print("⚠ No climbs found!")
+            print("WARNING: No climbs found!")
             sys.exit(1)
 
         # Apply filters
         climbs = filter_climbs(climbs, config)
 
         if not climbs:
-            print("⚠ No climbs remained after filtering!")
+            print("WARNING: No climbs remained after filtering!")
             sys.exit(1)
 
         # Export to Parquet
         export_to_parquet(climbs, config)
 
-        print("\n✓ Export successful!")
+        print("\nExport successful!")
 
     except Exception as e:
-        print(f"\n✗ Export failed: {e}")
+        print(f"\nERROR: Export failed: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

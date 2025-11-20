@@ -6,11 +6,11 @@ export:
   api_url: "https://api.openbeta.io/"
 
   # Geographic regions to export (leave empty for worldwide)
-  regions:
-    - USA
+  regions: []
+    # - USA
     # - Canada
     # - Mexico
-    # Uncomment or add more countries as needed
+    # Uncomment to filter to specific countries
 
   # Output configuration
   output:
