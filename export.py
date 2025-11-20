@@ -283,6 +283,10 @@ def export_to_parquet(climbs: List[Dict], config: Dict):
         tmp_path = tmp.name
 
     try:
+        # Measure JSON size for comparison
+        json_size_mb = Path(tmp_path).stat().st_size / (1024 * 1024)
+        print(f"  JSON intermediate size: {json_size_mb:.2f} MB")
+
         con.execute(f"CREATE TABLE climbs AS SELECT * FROM read_json_auto('{tmp_path}')")
         print(f"  Loaded {len(climbs)} climbs into DuckDB")
     finally:
@@ -304,9 +308,14 @@ def export_to_parquet(climbs: List[Dict], config: Dict):
         (FORMAT PARQUET, COMPRESSION '{compression}')
     """)
 
-    # Get file size
-    size_mb = output_path.stat().st_size / (1024 * 1024)
-    print(f"Export complete: {output_path} ({size_mb:.2f} MB)")
+    # Get file size and show comparison
+    parquet_size_mb = output_path.stat().st_size / (1024 * 1024)
+    compression_ratio = json_size_mb / parquet_size_mb if parquet_size_mb > 0 else 0
+    space_saved_pct = (1 - parquet_size_mb / json_size_mb) * 100 if json_size_mb > 0 else 0
+
+    print(f"Export complete: {output_path} ({parquet_size_mb:.2f} MB)")
+    print(f"  Size comparison: JSON {json_size_mb:.2f} MB → Parquet {parquet_size_mb:.2f} MB")
+    print(f"  Compression: {compression_ratio:.1f}x smaller ({space_saved_pct:.1f}% space saved)")
 
     # Show sample
     print(f"\nSample data (first 5 rows):")
