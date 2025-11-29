@@ -9,10 +9,10 @@ Export climbing route data from [OpenBeta](https://openbeta.io) to Apache Parque
 Download `openbeta-climbs.parquet` and use it with any Parquet-compatible tool:
 
 ```python
-# Python with pandas
-import pandas as pd
-df = pd.read_parquet('openbeta-climbs.parquet')
-print(df.head())
+# Python with DuckDB
+import duckdb
+df = duckdb.execute("SELECT * FROM 'openbeta-climbs.parquet' LIMIT 10").fetchdf()
+print(df)
 ```
 
 ```r
@@ -76,10 +76,9 @@ pip install -r requirements.txt
 ### Option 1: Edit Configuration
 
 Edit `config.yaml` to change:
-- Geographic regions
+- Geographic regions to export
 - Output filename
-- Compression type
-- Batch size
+- Compression type (snappy, gzip, zstd)
 
 ```yaml
 export:
@@ -97,18 +96,16 @@ export:
 Edit `schema.sql` to reshape the data:
 
 ```sql
--- Example: Add elevation, filter by difficulty
+-- Example: Filter to sport routes only
 SELECT
     uuid AS climb_id,
     name AS climb_name,
     grades.yds AS grade,
-    metadata.elevation AS elevation_meters,  -- Added field
     metadata.lat AS latitude,
     metadata.lng AS longitude
 
 FROM climbs
-WHERE grades.yds >= '5.10a'  -- Only 5.10a and harder
-  AND type.sport = true       -- Sport routes only
+WHERE type.sport = true
 ```
 
 ### Run Your Custom Export
@@ -128,7 +125,7 @@ The `examples/` directory contains ready-to-use schema variations:
 cp examples/schema-minimal.sql schema.sql
 python export.py
 ```
-Just climb name, grade, and coordinates. Perfect for GPS devices with limited storage.
+Just climb name, grade, and coordinates. Smallest possible file size.
 
 ### Extended (all metadata)
 ```bash
@@ -150,7 +147,7 @@ Approximate sizes for different configurations:
 
 | Schema | Rows | File Size | Use Case |
 |--------|------|-----------|----------|
-| Minimal | 200k climbs | ~15 MB | GPS devices, mobile apps |
+| Minimal | 200k climbs | ~15 MB | Lightweight applications |
 | Standard | 200k climbs | ~40 MB | General analysis |
 | Extended | 200k climbs | ~80 MB | Comprehensive research |
 

@@ -1,4 +1,4 @@
--- Minimal Schema - Just the essentials for a watch/GPS device
+-- Minimal Schema - Just the essentials (smallest file size)
 -- Smallest file size, fastest to load
 
 SELECT
