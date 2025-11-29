@@ -30,31 +30,7 @@ LIMIT 10;
 
 ## Data Format
 
-Each row represents one climbing route with:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `climb_id` | string | Unique identifier (UUID) |
-| `climb_name` | string | Route name |
-| `grade_yds` | string | Yosemite Decimal System grade (e.g., "5.10a") |
-| `grade_vscale` | string | V-scale boulder grade (e.g., "V5") |
-| `is_sport` | boolean | Sport climbing route |
-| `is_trad` | boolean | Traditional climbing route |
-| `is_boulder` | boolean | Boulder problem |
-| `country` | string | Country name |
-| `state_province` | string | State or province |
-| `region` | string | Geographic region |
-| `area` | string | Climbing area |
-| `crag` | string | Specific crag or cliff |
-| `latitude` | float | GPS latitude |
-| `longitude` | float | GPS longitude |
-| `length_meters` | int | Route length in meters |
-| `bolts_count` | int | Number of bolts (sport routes) |
-| `first_ascent` | string | First ascent information |
-| `safety` | string | Safety rating |
-| `description` | string | Route description |
-
-See [schema.sql](schema.sql) for the complete definition.
+Each row represents one climbing route. See [schema.sql](schema.sql) for column definitions.
 
 ## Customizing the Export
 
@@ -140,18 +116,6 @@ cp examples/schema-usa-sport-only.sql schema.sql
 python export.py
 ```
 Filtered to just sport climbing routes in the United States.
-
-## File Sizes
-
-Approximate sizes for different configurations:
-
-| Schema | Rows | File Size | Use Case |
-|--------|------|-----------|----------|
-| Minimal | 200k climbs | ~15 MB | Lightweight applications |
-| Standard | 200k climbs | ~40 MB | General analysis |
-| Extended | 200k climbs | ~80 MB | Comprehensive research |
-
-All with Snappy compression. Use `zstd` in config for 20-30% smaller files.
 
 ## Data Updates
 

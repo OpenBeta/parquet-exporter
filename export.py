@@ -245,20 +245,13 @@ def fetch_all_climbs(api_url: str) -> List[Dict]:
     return all_climbs
 
 def filter_climbs(climbs: List[Dict], config: Dict) -> List[Dict]:
-    """Apply filters from config"""
-    filters = config.get("export", {}).get("filters", {})
+    """Filter climbs by configured regions"""
     regions = config.get("export", {}).get("regions", [])
+    if not regions:
+        return climbs
 
-    filtered = climbs
-
-    # Filter by regions
-    if regions:
-        filtered = [
-            c for c in filtered
-            if c.get("pathTokens") and len(c["pathTokens"]) > 0 and c["pathTokens"][0] in regions
-        ]
-        print(f"Filtered to regions {regions}: {len(filtered)} climbs")
-
+    filtered = [c for c in climbs if c.get("pathTokens") and c["pathTokens"][0] in regions]
+    print(f"Filtered to regions {regions}: {len(filtered)} climbs")
     return filtered
 
 def export_to_parquet(climbs: List[Dict], config: Dict):

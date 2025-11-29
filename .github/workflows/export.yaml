@@ -62,8 +62,8 @@ jobs:
             - Size reduction: ${{ steps.stats.outputs.SAVED }}%
 
             ```python
-            import pandas as pd
-            df = pd.read_parquet('openbeta-climbs.parquet')
+            import duckdb
+            df = duckdb.execute("SELECT * FROM 'openbeta-climbs.parquet'").fetchdf()
             ```
 
             Schema: [schema.sql](https://github.com/OpenBeta/parquet-exporter/blob/main/schema.sql)
