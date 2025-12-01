@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
 import sys
 
-# Countries known to be too large for single query - always split these
-LARGE_COUNTRIES = {"USA", "Canada"}
+# Countries known to be too large for single query - skip straight to children
+LARGE_REGIONS = {"USA", "Canada"}
 
-# GraphQL query to fetch all countries
+# GraphQL query to fetch all countries with UUIDs
 COUNTRIES_QUERY = """
 query GetCountries {
   countries {
@@ -26,10 +26,22 @@ query GetCountries {
 }
 """
 
-# GraphQL query to fetch sub-regions (states/provinces) for a country
-SUBREGIONS_QUERY = """
-query GetSubregions($uuid: ID!) {
+# GraphQL query to get children by UUID
+CHILDREN_BY_UUID_QUERY = """
+query GetChildren($uuid: ID!) {
   area(uuid: $uuid) {
+    children {
+      areaName
+    }
+  }
+}
+"""
+
+# GraphQL query to get area UUID and children by path
+CHILDREN_BY_PATH_QUERY = """
+query GetAreaByPath($tokens: [String!]!) {
+  areas(filter: {path_tokens: {tokens: $tokens, exactMatch: true}, leaf_status: {isLeaf: false}}) {
+    uuid
     children {
       areaName
     }
@@ -91,32 +103,44 @@ def load_schema() -> str:
     schema_path = Path(__file__).parent / "schema.sql"
     return schema_path.read_text()
 
-def fetch_subregions(api_url: str, country: str, country_uuid: str) -> List[List[str]]:
-    """Fetch sub-regions for a country using area children query"""
+def fetch_children_by_uuid(api_url: str, uuid: str) -> List[str]:
+    """Fetch child area names using UUID"""
     try:
         response = requests.post(
             api_url,
-            json={"query": SUBREGIONS_QUERY, "variables": {"uuid": country_uuid}},
+            json={"query": CHILDREN_BY_UUID_QUERY, "variables": {"uuid": uuid}},
             headers={"Content-Type": "application/json"},
             timeout=30
         )
-
         if response.status_code != 200:
-            print(f"    ERROR: Subregions query returned {response.status_code}")
             return []
-
         data = response.json()
         if "errors" in data:
-            print(f"    ERROR: GraphQL errors: {data['errors']}")
             return []
-
         children = data.get("data", {}).get("area", {}).get("children", [])
-        return [[country, child["areaName"]] for child in children]
-    except requests.Timeout:
-        print(f"    ERROR: Subregions query timed out after 30s")
+        return [c["areaName"] for c in children]
+    except:
         return []
-    except Exception as e:
-        print(f"    ERROR: Unexpected error: {e}")
+
+def fetch_children_by_path(api_url: str, tokens: List[str]) -> List[str]:
+    """Fetch child area names using path tokens"""
+    try:
+        response = requests.post(
+            api_url,
+            json={"query": CHILDREN_BY_PATH_QUERY, "variables": {"tokens": tokens}},
+            headers={"Content-Type": "application/json"},
+            timeout=30
+        )
+        if response.status_code != 200:
+            return []
+        data = response.json()
+        if "errors" in data:
+            return []
+        areas = data.get("data", {}).get("areas", [])
+        if not areas:
+            return []
+        return [c["areaName"] for c in areas[0].get("children", [])]
+    except:
         return []
 
 def fetch_region_climbs(api_url: str, tokens: List[str]) -> Tuple[Optional[List[Dict]], Optional[Any]]:
@@ -158,38 +182,56 @@ def fetch_region_climbs(api_url: str, tokens: List[str]) -> Tuple[Optional[List[
 
     return climbs, None
 
-def fetch_country_via_subregions(api_url: str, country: str, country_uuid: str) -> Tuple[List[Dict], int]:
-    """Fetch climbs for a country by splitting into sub-regions"""
-    subregions = fetch_subregions(api_url, country, country_uuid)
+def fetch_region(api_url: str, tokens: List[str], uuid: str = None, depth: int = 0) -> List[Dict]:
+    """Recursively fetch climbs, splitting into children on timeout"""
+    indent = "  " * (depth + 1)
+    region_name = " > ".join(tokens)
 
-    if not subregions:
-        print(f"    WARNING: Could not fetch sub-regions for {country}")
-        return [], 0
+    # known large regions - skip straight to children
+    if tokens[-1] in LARGE_REGIONS and uuid:
+        print(f"{indent}{region_name}: splitting (known large region)")
+        children = fetch_children_by_uuid(api_url, uuid)
+        if not children:
+            print(f"{indent}  WARNING: no children found")
+            return []
+        print(f"{indent}  found {len(children)} children")
+        all_climbs = []
+        for child in children:
+            all_climbs.extend(fetch_region(api_url, tokens + [child], depth=depth + 1))
+        return all_climbs
 
-    print(f"    Found {len(subregions)} sub-regions")
-    climbs = []
-    total = 0
+    # try fetching climbs directly
+    climbs, error = fetch_region_climbs(api_url, tokens)
 
-    for subregion in subregions:
-        region_name = " > ".join(subregion)
-        sub_climbs, sub_error = fetch_region_climbs(api_url, subregion)
+    if error not in [502, 504]:
+        if error:
+            print(f"{indent}{region_name}: failed ({error})")
+            return []
+        print(f"{indent}{region_name}: {len(climbs)} climbs")
+        return climbs
 
-        if sub_error:
-            print(f"      WARNING: Failed to fetch {region_name}: {sub_error}")
-            continue
+    # timeout - split into children
+    print(f"{indent}{region_name}: timeout, splitting into children...")
 
-        climbs.extend(sub_climbs)
-        total += len(sub_climbs)
-        print(f"      {region_name}: {len(sub_climbs)} climbs")
+    if uuid:
+        children = fetch_children_by_uuid(api_url, uuid)
+    else:
+        children = fetch_children_by_path(api_url, tokens)
 
-    print(f"    {country} total: {total} climbs")
-    return climbs, total
+    if not children:
+        print(f"{indent}  WARNING: no children found for {region_name}")
+        return []
+
+    print(f"{indent}  found {len(children)} children")
+    all_climbs = []
+    for child in children:
+        all_climbs.extend(fetch_region(api_url, tokens + [child], depth=depth + 1))
+    return all_climbs
 
 def fetch_all_climbs(api_url: str) -> List[Dict]:
-    """Fetch all climbs from GraphQL API by querying each country separately"""
+    """Fetch all climbs from GraphQL API"""
     print(f"Fetching countries from {api_url}...")
 
-    # Get all countries with UUIDs
     response = requests.post(
         api_url,
         json={"query": COUNTRIES_QUERY},
@@ -203,35 +245,15 @@ def fetch_all_climbs(api_url: str) -> List[Dict]:
     if "errors" in data:
         raise Exception(f"GraphQL errors: {data['errors']}")
 
-    countries = [(c["areaName"], c["uuid"]) for c in data.get("data", {}).get("countries", [])]
+    countries = data.get("data", {}).get("countries", [])
     print(f"Found {len(countries)} countries")
 
     all_climbs = []
-
-    for i, (country, country_uuid) in enumerate(countries, 1):
-        print(f"  [{i}/{len(countries)}] Fetching {country}...")
-
-        # Known large countries - go straight to sub-regions
-        if country in LARGE_COUNTRIES:
-            print(f"    Large country detected, fetching sub-regions...")
-            climbs, _ = fetch_country_via_subregions(api_url, country, country_uuid)
-            all_climbs.extend(climbs)
-            continue
-
-        # Try fetching the whole country first
-        climbs, error = fetch_region_climbs(api_url, [country])
-
-        if error in [502, 504]:
-            # Timeout - split into sub-regions
-            print(f"    Country too large, fetching sub-regions...")
-            print(f"    NOTE: Consider adding '{country}' to LARGE_COUNTRIES to skip this timeout")
-            climbs, _ = fetch_country_via_subregions(api_url, country, country_uuid)
-            all_climbs.extend(climbs)
-        elif error:
-            print(f"    WARNING: Failed to fetch {country}: {error}")
-        else:
-            all_climbs.extend(climbs)
-            print(f"    {country}: {len(climbs)} climbs")
+    for i, country in enumerate(countries, 1):
+        name, uuid = country["areaName"], country["uuid"]
+        print(f"[{i}/{len(countries)}] {name}")
+        climbs = fetch_region(api_url, [name], uuid=uuid, depth=0)
+        all_climbs.extend(climbs)
 
     print(f"\nTotal climbs fetched: {len(all_climbs)}")
     return all_climbs
