@@ -1,54 +1,44 @@
 -- OpenBeta Climb Export Schema
--- This SQL query transforms the raw GraphQL data into a flat table
--- Feel free to customize by adding/removing columns!
+-- Transforms raw GraphQL data into a flat table
 
 SELECT
-    -- Identifiers
-    CAST(uuid AS VARCHAR) AS climb_id,
-    CAST(name AS VARCHAR) AS climb_name,
+    uuid AS climb_id,
+    name AS climb_name,
 
-    -- Grades (multiple systems available - cast from JSON to VARCHAR)
-    COALESCE(CAST(grades.yds AS VARCHAR), '') AS grade_yds,
-    COALESCE(CAST(grades.vscale AS VARCHAR), '') AS grade_vscale,
-    COALESCE(CAST(grades.french AS VARCHAR), '') AS grade_french,
+    -- Grades (cast required - DuckDB infers as JSON)
+    CAST(grades.yds AS VARCHAR) AS grade_yds,
+    CAST(grades.vscale AS VARCHAR) AS grade_vscale,
+    CAST(grades.french AS VARCHAR) AS grade_french,
 
-    -- Climbing type (boolean flags)
-    CAST(COALESCE(type.sport, false) AS BOOLEAN) AS is_sport,
-    CAST(COALESCE(type.trad, false) AS BOOLEAN) AS is_trad,
-    CAST(COALESCE(type.bouldering, false) AS BOOLEAN) AS is_boulder,
-    CAST(COALESCE(type.alpine, false) AS BOOLEAN) AS is_alpine,
-    CAST(COALESCE(type.tr, false) AS BOOLEAN) AS is_top_rope,
+    -- Climbing type
+    type.sport AS is_sport,
+    type.trad AS is_trad,
+    type.bouldering AS is_boulder,
+    type.alpine AS is_alpine,
+    type.tr AS is_top_rope,
 
-    -- Location hierarchy (from pathTokens array)
-    -- Adjust indices based on your needs:
-    -- [0] = Country, [1] = State/Province, [2] = Region, [3] = Area, [4] = Crag
-    CAST(COALESCE(list_element(pathTokens, 1), '') AS VARCHAR) AS country,
-    CAST(COALESCE(list_element(pathTokens, 2), '') AS VARCHAR) AS state_province,
-    CAST(COALESCE(list_element(pathTokens, 3), '') AS VARCHAR) AS region,
-    CAST(COALESCE(list_element(pathTokens, 4), '') AS VARCHAR) AS area,
-    CAST(COALESCE(list_element(pathTokens, 5), '') AS VARCHAR) AS crag,
-
-    -- Full path as array (for advanced use)
-    -- pathTokens AS location_path,  -- Commented out: array types not supported by many visualization tools
+    -- Location hierarchy (pathTokens: [0]=Country, [1]=State, [2]=Region, [3]=Area, [4]=Crag)
+    list_element(pathTokens, 1) AS country,
+    list_element(pathTokens, 2) AS state_province,
+    list_element(pathTokens, 3) AS region,
+    list_element(pathTokens, 4) AS area,
+    list_element(pathTokens, 5) AS crag,
 
     -- Coordinates
-    CAST(COALESCE(metadata.lat, 0.0) AS DOUBLE) AS latitude,
-    CAST(COALESCE(metadata.lng, 0.0) AS DOUBLE) AS longitude,
+    metadata.lat AS latitude,
+    metadata.lng AS longitude,
 
     -- Route metadata
-    CAST(COALESCE(length, 0) AS INTEGER) AS length_meters,
-    CAST(COALESCE(boltsCount, 0) AS INTEGER) AS bolts_count,
-    CAST(COALESCE(fa, '') AS VARCHAR) AS first_ascent,
-
-    -- Safety rating (if available - cast from JSON)
-    COALESCE(CAST(safety AS VARCHAR), '') AS safety,
+    length AS length_meters,
+    boltsCount AS bolts_count,
+    fa AS first_ascent,
+    CAST(safety AS VARCHAR) AS safety,
 
     -- Description (comment out if not needed - makes file larger)
-    CAST(COALESCE(content.description, '') AS VARCHAR) AS description
+    content.description AS description
 
 FROM climbs
 
--- Optional filters (uncomment to use):
+-- Example filters (uncomment to use):
 -- WHERE list_element(pathTokens, 1) IN ('USA', 'Canada')
 -- AND type.sport = true
--- AND grades.yds >= '5.10a'
