@@ -50,9 +50,10 @@ query GetAreaByPath($tokens: [String!]!) {
 """
 
 # GraphQL query to fetch areas with climbs for a specific country or region
+# Uses pagination (limit/offset) since the API defaults to 50 results
 AREAS_QUERY = """
-query GetAreas($tokens: [String!]!) {
-  areas(filter: {leaf_status: {isLeaf: true}, path_tokens: {tokens: $tokens}}) {
+query GetAreas($tokens: [String!]!, $limit: Int!, $offset: Int!) {
+  areas(filter: {leaf_status: {isLeaf: true}, path_tokens: {tokens: $tokens}}, limit: $limit, offset: $offset) {
     uuid
     area_name
     pathTokens
@@ -91,6 +92,9 @@ query GetAreas($tokens: [String!]!) {
   }
 }
 """
+
+# Pagination settings
+AREAS_PAGE_SIZE = 500  # Max allowed by API
 
 def load_config() -> Dict[str, Any]:
     """Load configuration from config.yaml"""
@@ -144,43 +148,79 @@ def fetch_children_by_path(api_url: str, tokens: List[str]) -> List[str]:
         return []
 
 def fetch_region_climbs(api_url: str, tokens: List[str]) -> Tuple[Optional[List[Dict]], Optional[Any]]:
-    """Fetch climbs for a specific region (country or sub-region)"""
-    try:
-        response = requests.post(
-            api_url,
-            json={"query": AREAS_QUERY, "variables": {"tokens": tokens}},
-            headers={"Content-Type": "application/json"},
-            timeout=120
-        )
-    except requests.Timeout:
-        return None, 504
+    """Fetch climbs for a specific region (country or sub-region) with pagination"""
+    all_climbs = []
+    offset = 0
+    total_areas = 0
 
-    if response.status_code != 200:
-        return None, response.status_code
+    while True:
+        try:
+            response = requests.post(
+                api_url,
+                json={
+                    "query": AREAS_QUERY,
+                    "variables": {
+                        "tokens": tokens,
+                        "limit": AREAS_PAGE_SIZE,
+                        "offset": offset
+                    }
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=120
+            )
+        except requests.Timeout:
+            if offset == 0:
+                # First page timed out - signal to split into children
+                return None, 504
+            else:
+                # Already got some data, return what we have
+                print(f"    WARNING: Timeout at offset {offset}, returning {len(all_climbs)} climbs")
+                return all_climbs, None
 
-    data = response.json()
-    if "errors" in data:
-        return None, "GraphQL Error"
+        if response.status_code != 200:
+            if offset == 0:
+                return None, response.status_code
+            else:
+                print(f"    WARNING: Error at offset {offset}, returning {len(all_climbs)} climbs")
+                return all_climbs, None
 
-    areas = data.get("data", {}).get("areas", [])
-    climbs = []
+        data = response.json()
+        if "errors" in data:
+            if offset == 0:
+                return None, "GraphQL Error"
+            else:
+                print(f"    WARNING: GraphQL error at offset {offset}, returning {len(all_climbs)} climbs")
+                return all_climbs, None
 
-    # Extract climbs from areas and flatten
-    for area in areas:
-        for climb in area.get("climbs", []):
-            # Use area pathTokens if climb doesn't have them
-            if not climb.get("pathTokens"):
-                climb["pathTokens"] = area.get("pathTokens", [])
+        areas = data.get("data", {}).get("areas", [])
+        total_areas += len(areas)
 
-            # Add area coordinates if climb doesn't have them
-            if not climb.get("metadata", {}).get("lat"):
-                if area.get("metadata", {}).get("lat"):
-                    climb.setdefault("metadata", {})["lat"] = area["metadata"]["lat"]
-                    climb["metadata"]["lng"] = area["metadata"]["lng"]
+        # Extract climbs from areas and flatten
+        for area in areas:
+            for climb in area.get("climbs", []):
+                # Use area pathTokens if climb doesn't have them
+                if not climb.get("pathTokens"):
+                    climb["pathTokens"] = area.get("pathTokens", [])
 
-            climbs.append(climb)
+                # Add area coordinates if climb doesn't have them
+                if not climb.get("metadata", {}).get("lat"):
+                    if area.get("metadata", {}).get("lat"):
+                        climb.setdefault("metadata", {})["lat"] = area["metadata"]["lat"]
+                        climb["metadata"]["lng"] = area["metadata"]["lng"]
 
-    return climbs, None
+                all_climbs.append(climb)
+
+        # Check if we've fetched all pages
+        if len(areas) < AREAS_PAGE_SIZE:
+            break
+
+        offset += AREAS_PAGE_SIZE
+
+        # Progress indicator for large regions
+        if offset % 1000 == 0:
+            print(f"    ... fetched {total_areas} areas, {len(all_climbs)} climbs so far")
+
+    return all_climbs, None
 
 def fetch_region(api_url: str, tokens: List[str], uuid: str = None, depth: int = 0) -> List[Dict]:
     """Recursively fetch climbs, splitting into children on timeout"""
@@ -207,7 +247,7 @@ def fetch_region(api_url: str, tokens: List[str], uuid: str = None, depth: int =
         if error:
             print(f"{indent}{region_name}: failed ({error})")
             return []
-        print(f"{indent}{region_name}: {len(climbs)} climbs")
+        print(f"{indent}{region_name}: {len(climbs):,} climbs")
         return climbs
 
     # timeout - split into children
