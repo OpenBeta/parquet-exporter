@@ -9,47 +9,21 @@ import requests
 import duckdb
 import yaml
 import tempfile
+import time
 from pathlib import Path
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any
 import sys
 
-# Countries known to be too large for single query - skip straight to children
-LARGE_REGIONS = {"USA", "Canada"}
-
-# GraphQL query to fetch all countries with UUIDs
+# GraphQL query to fetch all countries
 COUNTRIES_QUERY = """
 query GetCountries {
   countries {
     areaName
-    uuid
   }
 }
 """
 
-# GraphQL query to get children by UUID
-CHILDREN_BY_UUID_QUERY = """
-query GetChildren($uuid: ID!) {
-  area(uuid: $uuid) {
-    children {
-      areaName
-    }
-  }
-}
-"""
-
-# GraphQL query to get area UUID and children by path
-CHILDREN_BY_PATH_QUERY = """
-query GetAreaByPath($tokens: [String!]!) {
-  areas(filter: {path_tokens: {tokens: $tokens, exactMatch: true}, leaf_status: {isLeaf: false}}) {
-    uuid
-    children {
-      areaName
-    }
-  }
-}
-"""
-
-# GraphQL query to fetch areas with climbs for a specific country or region
+# GraphQL query to fetch areas with climbs for a specific country
 # Uses pagination (limit/offset) since the API defaults to 50 results
 AREAS_QUERY = """
 query GetAreas($tokens: [String!]!, $limit: Int!, $offset: Int!) {
@@ -107,95 +81,56 @@ def load_schema() -> str:
     schema_path = Path(__file__).parent / "schema.sql"
     return schema_path.read_text()
 
-def fetch_children_by_uuid(api_url: str, uuid: str) -> List[str]:
-    """Fetch child area names using UUID"""
-    try:
-        response = requests.post(
-            api_url,
-            json={"query": CHILDREN_BY_UUID_QUERY, "variables": {"uuid": uuid}},
-            headers={"Content-Type": "application/json"},
-            timeout=30
-        )
-        if response.status_code != 200:
-            return []
-        data = response.json()
-        if "errors" in data:
-            return []
-        children = data.get("data", {}).get("area", {}).get("children", [])
-        return [c["areaName"] for c in children]
-    except:
-        return []
-
-def fetch_children_by_path(api_url: str, tokens: List[str]) -> List[str]:
-    """Fetch child area names using path tokens"""
-    try:
-        response = requests.post(
-            api_url,
-            json={"query": CHILDREN_BY_PATH_QUERY, "variables": {"tokens": tokens}},
-            headers={"Content-Type": "application/json"},
-            timeout=30
-        )
-        if response.status_code != 200:
-            return []
-        data = response.json()
-        if "errors" in data:
-            return []
-        areas = data.get("data", {}).get("areas", [])
-        if not areas:
-            return []
-        return [c["areaName"] for c in areas[0].get("children", [])]
-    except:
-        return []
-
-def fetch_region_climbs(api_url: str, tokens: List[str]) -> Tuple[Optional[List[Dict]], Optional[Any]]:
-    """Fetch climbs for a specific region (country or sub-region) with pagination"""
+def fetch_country_climbs(api_url: str, country: str) -> List[Dict]:
+    """Fetch all climbs for a country using pagination"""
     all_climbs = []
     offset = 0
     total_areas = 0
+    max_retries = 3
 
     while True:
-        try:
-            response = requests.post(
-                api_url,
-                json={
-                    "query": AREAS_QUERY,
-                    "variables": {
-                        "tokens": tokens,
-                        "limit": AREAS_PAGE_SIZE,
-                        "offset": offset
-                    }
-                },
-                headers={"Content-Type": "application/json"},
-                timeout=120
-            )
-        except requests.Timeout:
-            if offset == 0:
-                # First page timed out - signal to split into children
-                return None, 504
-            else:
-                # Already got some data, return what we have
-                print(f"    WARNING: Timeout at offset {offset}, returning {len(all_climbs)} climbs")
-                return all_climbs, None
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    api_url,
+                    json={
+                        "query": AREAS_QUERY,
+                        "variables": {
+                            "tokens": [country],
+                            "limit": AREAS_PAGE_SIZE,
+                            "offset": offset
+                        }
+                    },
+                    headers={"Content-Type": "application/json"},
+                    timeout=120
+                )
+                if response.status_code == 200:
+                    break
+                if response.status_code in (502, 503, 504) and attempt < max_retries - 1:
+                    print(f"    retry {attempt + 1}/{max_retries} after {response.status_code}...")
+                    time.sleep(2)
+                    continue
+            except requests.Timeout:
+                if attempt < max_retries - 1:
+                    print(f"    retry {attempt + 1}/{max_retries} after timeout...")
+                    time.sleep(2)
+                    continue
+                print(f"  {country}: timeout at offset {offset}")
+                return all_climbs
 
         if response.status_code != 200:
-            if offset == 0:
-                return None, response.status_code
-            else:
-                print(f"    WARNING: Error at offset {offset}, returning {len(all_climbs)} climbs")
-                return all_climbs, None
+            print(f"  {country}: failed ({response.status_code}) at offset {offset}")
+            return all_climbs
 
         data = response.json()
         if "errors" in data:
-            if offset == 0:
-                return None, "GraphQL Error"
-            else:
-                print(f"    WARNING: GraphQL error at offset {offset}, returning {len(all_climbs)} climbs")
-                return all_climbs, None
+            print(f"  {country}: GraphQL error")
+            return all_climbs
 
         areas = data.get("data", {}).get("areas", [])
         total_areas += len(areas)
 
-        # Extract climbs from areas and flatten
+        # Extract climbs from areas
         for area in areas:
             for climb in area.get("climbs", []):
                 # Use area pathTokens if climb doesn't have them
@@ -216,56 +151,10 @@ def fetch_region_climbs(api_url: str, tokens: List[str]) -> Tuple[Optional[List[
 
         offset += AREAS_PAGE_SIZE
 
-        # Progress indicator for large regions
+        # Progress indicator for large countries
         if offset % 1000 == 0:
             print(f"    ... fetched {total_areas} areas, {len(all_climbs)} climbs so far")
 
-    return all_climbs, None
-
-def fetch_region(api_url: str, tokens: List[str], uuid: str = None, depth: int = 0) -> List[Dict]:
-    """Recursively fetch climbs, splitting into children on timeout"""
-    indent = "  " * (depth + 1)
-    region_name = " > ".join(tokens)
-
-    # known large regions - skip straight to children
-    if tokens[-1] in LARGE_REGIONS and uuid:
-        print(f"{indent}{region_name}: splitting (known large region)")
-        children = fetch_children_by_uuid(api_url, uuid)
-        if not children:
-            print(f"{indent}  WARNING: no children found")
-            return []
-        print(f"{indent}  found {len(children)} children")
-        all_climbs = []
-        for child in children:
-            all_climbs.extend(fetch_region(api_url, tokens + [child], depth=depth + 1))
-        return all_climbs
-
-    # try fetching climbs directly
-    climbs, error = fetch_region_climbs(api_url, tokens)
-
-    if error not in [502, 504]:
-        if error:
-            print(f"{indent}{region_name}: failed ({error})")
-            return []
-        print(f"{indent}{region_name}: {len(climbs):,} climbs")
-        return climbs
-
-    # timeout - split into children
-    print(f"{indent}{region_name}: timeout, splitting into children...")
-
-    if uuid:
-        children = fetch_children_by_uuid(api_url, uuid)
-    else:
-        children = fetch_children_by_path(api_url, tokens)
-
-    if not children:
-        print(f"{indent}  WARNING: no children found for {region_name}")
-        return []
-
-    print(f"{indent}  found {len(children)} children")
-    all_climbs = []
-    for child in children:
-        all_climbs.extend(fetch_region(api_url, tokens + [child], depth=depth + 1))
     return all_climbs
 
 def fetch_all_climbs(api_url: str) -> List[Dict]:
@@ -290,9 +179,13 @@ def fetch_all_climbs(api_url: str) -> List[Dict]:
 
     all_climbs = []
     for i, country in enumerate(countries, 1):
-        name, uuid = country["areaName"], country["uuid"]
+        name = country["areaName"]
         print(f"[{i}/{len(countries)}] {name}")
-        climbs = fetch_region(api_url, [name], uuid=uuid, depth=0)
+        climbs = fetch_country_climbs(api_url, name)
+        if climbs:
+            print(f"  {name}: {len(climbs):,} climbs")
+        else:
+            print(f"  {name}: 0 climbs")
         all_climbs.extend(climbs)
 
     print(f"\nTotal climbs fetched: {len(all_climbs)}")
